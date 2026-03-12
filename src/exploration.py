@@ -24,7 +24,7 @@ logging.basicConfig(
 COLUMNS=["path", "filename", "width", "height",
          "mode", "format", "size_bytes",  "bits",
          "is_grayscale", "brightness", "contrast", "sharpness"
-         "label",
+         "label", 'dark_ratio', 'bright_ratio', 'median_intensity'
 ]
 
 
@@ -77,6 +77,9 @@ class ImageExploration:
                         "brightness": 0,
                         "contrast": 0,
                         "sharpness":0,
+                        'dark_ratio': 0,
+                        'bright_ratio': 0,
+                        'median_intensity': 0,
                         "bits": 0,
                         "label": "None",
                     }
@@ -84,9 +87,10 @@ class ImageExploration:
         
             self.df = pd.DataFrame(data)
             
+        self.save()
         end_time = round(time.time() - start_time, 3)
         logging.info(f" List {self.df.shape[0]} images in {end_time} second")
-        self.save()
+
         
         
     def save(self):
@@ -101,7 +105,7 @@ class ImageExploration:
         """
         Parcourt tous les dossiers dans data et enregistre les chemins des fichiers.
         Returns:
-            DataFrame avec les colonnes 'path', 'filename', 'format'
+            DataFrame avec les colonnes 'path', 'filename', 'format', 'size_bytes'
         """
         file_paths = []
 
@@ -161,23 +165,29 @@ class ImageExploration:
                     else:
                         continue
     
-
+                bits = img.dtype.itemsize * 8
+                max_color = int(2^bits)
+                
                 brightness = int(gray.mean())
+                median_intensity = int(np.median(gray))
                 contrast = int(gray.std())
                 sharpness = int(cv2.Laplacian(gray, cv2.CV_64F).var())
+                dark_ratio = int(100.0 * np.mean(gray < int(0.15 * max_color)))
+                bright_ratio = int(100.0 * np.mean(gray > int(0.85 * max_color)))
     
-                # profondeur en bits
-                bits = img.dtype.itemsize * 8
-                
-                self.df.loc[index, ['width', 'height', 'mode', 'bits', 'is_grayscale', 'brightness', 'contrast', 'sharpness']
-                            ] = [width, height, mode, bits, is_grayscale, brightness, contrast, sharpness]
+
+                self.df.loc[index, ['width', 'height', 'mode', 'bits', 'is_grayscale', 'brightness', 
+                                    'contrast', 'sharpness', 'dark_ratio', 'bright_ratio', 'median_intensity'],
+                            ] = [width, height, mode, bits, is_grayscale, brightness,
+                                 contrast, sharpness, dark_ratio, bright_ratio, median_intensity]
                 
             except:
                 pass
-
+            
+        self.save()
         end_time = round(time.time() - start_time, 3)
         logging.info(f" Update {self.df.shape[0]} images properties in {end_time} second")
-        self.save()
+
     
 
     def get_labeled(self) -> pd.DataFrame:
