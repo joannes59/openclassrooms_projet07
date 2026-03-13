@@ -22,9 +22,9 @@ logging.basicConfig(
 
 
 COLUMNS=["path", "filename", "width", "height",
-         "mode", "format", "size_bytes",  "bits",
-         "is_grayscale", "brightness", "contrast", "sharpness"
-         "label",
+         "mode", "format", "size_bytes",  "bits", "label",
+         "is_grayscale", "property", "brightness", "contrast", "sharpness",
+          'dark_ratio', 'bright_ratio', 'median_intensity'
 ]
 
 
@@ -77,8 +77,13 @@ class ImageExploration:
                         "brightness": 0,
                         "contrast": 0,
                         "sharpness":0,
+                        'dark_ratio': 0,
+                        'bright_ratio': 0,
+                        'median_intensity': 0,
+                        'property': 'todo',
                         "bits": 0,
                         "label": "None",
+                        "state": "None",
                     }
                 )
         
@@ -86,8 +91,7 @@ class ImageExploration:
             
         end_time = round(time.time() - start_time, 3)
         logging.info(f" List {self.df.shape[0]} images in {end_time} second")
-        self.save()
-        
+
         
     def save(self):
         """Sauvegarde le dataframe au format parquet ou csv."""
@@ -101,7 +105,7 @@ class ImageExploration:
         """
         Parcourt tous les dossiers dans data et enregistre les chemins des fichiers.
         Returns:
-            DataFrame avec les colonnes 'path', 'filename', 'format'
+            DataFrame avec les colonnes 'path', 'filename', 'format', 'size_bytes'
         """
         file_paths = []
 
@@ -161,41 +165,72 @@ class ImageExploration:
                     else:
                         continue
     
-
+                bits = img.dtype.itemsize * 8
+                max_color = int(2^bits)
+                
                 brightness = int(gray.mean())
+                median_intensity = int(np.median(gray))
                 contrast = int(gray.std())
                 sharpness = int(cv2.Laplacian(gray, cv2.CV_64F).var())
+                dark_ratio = int(100.0 * np.mean(gray < int(0.15 * max_color)))
+                bright_ratio = int(100.0 * np.mean(gray > int(0.85 * max_color)))
     
-                # profondeur en bits
-                bits = img.dtype.itemsize * 8
-                
-                self.df.loc[index, ['width', 'height', 'mode', 'bits', 'is_grayscale', 'brightness', 'contrast', 'sharpness']
-                            ] = [width, height, mode, bits, is_grayscale, brightness, contrast, sharpness]
+
+                self.df.loc[index, ['width', 'height', 'mode', 'bits', 'is_grayscale', 'brightness', 
+                                    'contrast', 'sharpness', 'dark_ratio', 'bright_ratio', 'median_intensity', 'property'],
+                            ] = [width, height, mode, bits, is_grayscale, brightness,
+                                 contrast, sharpness, dark_ratio, bright_ratio, median_intensity, 'done']
                 
             except:
                 pass
-
+            
         end_time = round(time.time() - start_time, 3)
         logging.info(f" Update {self.df.shape[0]} images properties in {end_time} second")
-        self.save()
-    
 
-    def get_labeled(self) -> pd.DataFrame:
-        """Retourne les images avec label."""
-        return self.df[self.df["label"].notna()]
 
-    def get_unlabeled(self) -> pd.DataFrame:
-        """Retourne les images sans label."""
-        return self.df[self.df["label"].isna()]
-
-    def set_label(self, path: str, label: str):
-        """Affecte un label à une image."""
-        self.df.loc[self.df["path"] == path, "label"] = label
-        self.save()
-
+    def update_label(self):
+        """ Update un dataframe avec les labels pour le traitement d'image """
+        start_time = time.time()
+                
+        for index, row in self.df.iterrows():
+            
+            if "cancer" in row["path"]:
+                label = "cancer"
+            elif "normal" in row["path"]:
+                label = "normal"
+            else:
+                label = "None"
+            
+            self.df.loc[index, ['label']] = [label]
+        
+        end_time = round(time.time() - start_time, 3)
+        logging.info(f" Labelized {self.df.shape[0]} images in {end_time} second")
+            
+                
+    def update_outliers(self):
+        """ Update un dataframe avec les outliers """
+        start_time = time.time()
+        
+        # Filter
+        brightness = (self.df['brightness'] >= 98)
+        contrast = (self.df['contrast'] >= 90)
+        sharpness = (self.df['sharpness'] > 500)
+        dark_ratio = (self.df['dark_ratio'] > 55)
+        bright_ratio = (self.df['bright_ratio'] < 31)
+        median_intensity = (self.df['median_intensity'] > 125)
+        
+        filter_img = (sharpness | brightness | contrast | dark_ratio | bright_ratio | median_intensity)
+        
+        self.df.loc[filter_img, ['state']] = "outlier"
+        end_time = round(time.time() - start_time, 3)
+        logging.info(f" Add filter {self.df.shape[0]} images in {end_time} second")
 
 if __name__ == "__main__":
     manager = ImageExploration()
     manager.create_dataframe()
     manager.update_img_property()
+    manager.update_label()
+    manager.update_outliers()
+    manager.save()
+    
 
